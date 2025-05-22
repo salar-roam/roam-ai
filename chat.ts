@@ -11,7 +11,7 @@ export default async function handler(req: NextRequest) {
 
   // 1. draft parse
   const draft = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4',
     temperature: 0,
     messages: [
       { role: 'system', content: 'Extract structured JSON for Roam AI event or search query.' },
