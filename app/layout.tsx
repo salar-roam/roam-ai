@@ -1,7 +1,10 @@
 // app/layout.tsx
-import './globals.css';
+// app/layout.tsx
+import '../styles/globals.css'; // Add `../` to go up one directory then into `styles`
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+
+// ... rest of your layout.tsx code
 
 const inter = Inter({ subsets: ['latin'] });
 
