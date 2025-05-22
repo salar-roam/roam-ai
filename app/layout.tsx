@@ -1,8 +1,9 @@
 // app/layout.tsx
-// app/layout.tsx
-import '../styles/globals.css'; // Add `../` to go up one directory then into `styles`
+import '../styles/globals.css'; // <-- CORRECTED PATH
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+
+// ... rest of the file
 
 // ... rest of your layout.tsx code
 
