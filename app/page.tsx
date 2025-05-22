@@ -70,8 +70,7 @@ export default function Home() {
             setMessages((prev) => [...prev, { text: `Error publishing event: ${publishData.message || 'Unknown error'}`, sender: 'ai' }]);
           }
         } else if (data.type === 'follow_up' && data.questions) {
-          setMessages((prev) => [...prev, { text: `I need a bit more information: ${data.questions.join(' ')}`, sender: 'ai' }]);
-          setCurrentEventDraft({ event: data.event, questions: data.questions }); // Store draft
+          setMessages((prev) => [...prev, { text: `I need a bit more information: ${data.questions!.join(' ')}`, sender: 'ai' }]);          setCurrentEventDraft({ event: data.event, questions: data.questions }); // Store draft
         } else if (data.type === 'search_results' && data.results) {
           if (data.results.length > 0) {
             const formattedResults = data.results.map((event: any) =>
@@ -83,8 +82,7 @@ export default function Home() {
           }
           setCurrentEventDraft(null); // Clear draft after search
         } else if (data.message) {
-          setMessages((prev) => [...prev, { text: data.message, sender: 'ai' }]);
-          setCurrentEventDraft(null); // Clear draft if general message
+          setMessages((prev) => [...prev, { text: data.message || 'An unknown message was received.', sender: 'ai' }]);          setCurrentEventDraft(null); // Clear draft if general message
         } else {
           setMessages((prev) => [...prev, { text: 'An unexpected response was received from the AI.', sender: 'ai' }]);
           setCurrentEventDraft(null);
