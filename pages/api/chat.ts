@@ -1,40 +1,43 @@
+// pages/api/chat.ts
+import type { NextApiRequest, NextApiResponse } from 'next';
+import OpenAI from 'openai';
+import { supabase } from '../../lib/supabase'; // Adjust path if necessary
+
+// Define the structure for an event
+interface EventData {
+  title?: string;
+  description?: string;
+  price_value?: number;
+  price_text?: string;
+  currency?: string;
+  town?: string;
+  host?: {
+    name?: string;
+    phone_whatsapp?: string;
+  };
+  location?: {
+    name?: string;
+    address?: string;
+    lat?: number;
+    lng?: number;
+  };
+  tags?: string[];
+  image_url?: string;
+  links?: { url: string; text: string }[];
+  recurrence_rule?: string;
+  is_on_demand?: boolean;
+  occurrences?: {
+    start_ts: string; // ISO 8601
+    end_ts: string | null;
+  }[];
+}
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Helper to generate a prompt for event extraction
-const getEventExtractionPrompt = (userInput: string) => `
-  You are an AI assistant for Roam AI, an event management platform. Your task is to extract structured event information from user descriptions.
-  If a piece of information is not explicitly provided, indicate it as 'MISSING'.
-  Do not make up information. Ask follow-up questions if critical information like title, a start time, or location is missing.
-
-  User input: "${userInput}"
-
-  Please extract the following information in JSON format:
-  {
-    "title": string,
-    "description": string,
-    "price_value": number,
-    "price_text": string,
-    "currency": string,
-    "town": string,
-    "host": {
-      "name": string,
-      "phone_whatsapp": string
-    },
-    "location": {
-      "name": string,
-      "address": string,
-      "lat": number,
-      "lng": number
-    },
-    "tags": string[],
-    "image_url": string,
-    "links": { "url": string, "text": string }[],
-    "recurrence_rule": string,
-    "is_on_demand": boolean,
-    "occurrences": {
-      "start_ts": string,
-      "end_ts": string | null
-    }[]
 const getEventExtractionPrompt = (userInput: string) => {
   // Get current date for accurate 'tomorrow' calculation relative to Santo Domingo, DR (AST/GMT-4)
   const now = new Date();
@@ -53,8 +56,9 @@ const getEventExtractionPrompt = (userInput: string) => {
 
     Expected JSON format:
     {
-      "type": "event_creation" | "search",
+      "type": "event_creation" | "search" | "message",
       "query"?: string, // Only if type is 'search'
+      "message"?: string, // Only if type is 'message'
       "event"?: { // Only if type is 'event_creation'
         "title": "string" | "MISSING",
         "description": "string" | "MISSING",
@@ -123,8 +127,6 @@ const getEventExtractionPrompt = (userInput: string) => {
   `;
 };
 
-
-// THIS IS THE MISSING FUNCTION THAT NEEDS TO BE ADDED
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method Not Allowed' });
@@ -163,68 +165,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let parsedResponse: any;
     try {
       parsedResponse = JSON.parse(rawResponse);
-    } catch (jsonError) {
-      console.error('Failed to parse OpenAI JSON response:', jsonError);
-      return res.status(500).json({ message: 'Failed to parse AI response.', error: jsonError });
+      console.log('Parsed Response:', parsedResponse);
+    } catch (error) {
+      console.error('Error parsing OpenAI response:', error);
+      return res.status(500).json({ message: 'Error parsing AI response.' });
     }
 
-    // Handle search queries
-    if (parsedResponse.type === 'search') {
-      const searchQuery = parsedResponse.query;
-      if (!searchQuery) {
-        return res.status(400).json({ message: 'Search query not provided by AI.' });
-      }
+    // Handle different response types
+    switch (parsedResponse.type) {
+      case 'event_creation':
+        if (!parsedResponse.event) {
+          return res.status(400).json({ message: 'Invalid event data in response.' });
+        }
+        return res.status(200).json(parsedResponse);
 
-      // Basic keyword search in Supabase
-      const { data: events, error } = await supabase
-        .from('events')
-        .select('*')
-        .or(`title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,tags.cs.{"${searchQuery}"},host->>name.ilike.%${searchQuery}%,location->>name.ilike.%${searchQuery}%`)
-        .limit(10); // Limit results for now
+      case 'search':
+        if (!parsedResponse.query) {
+          return res.status(400).json({ message: 'Missing search query in response.' });
+        }
+        return res.status(200).json(parsedResponse);
 
-      if (error) {
-        console.error('Supabase search error:', error);
-        return res.status(500).json({ message: 'Error searching events.', error: error.message });
-      }
+      case 'message':
+        if (!parsedResponse.message) {
+          return res.status(400).json({ message: 'Missing message in response.' });
+        }
+        return res.status(200).json(parsedResponse);
 
-      if (events && events.length > 0) {
-        return res.status(200).json({ type: 'search_results', results: events });
-      } else {
-        return res.status(200).json({ type: 'search_results', message: 'No events found matching your search.' });
-      }
+      default:
+        console.error('Unrecognized response type:', parsedResponse.type);
+        return res.status(400).json({ message: 'Unrecognized response type from AI.' });
     }
-
-    // Handle event creation
-    if (parsedResponse.type === 'event_creation') {
-      const eventData: EventData = parsedResponse.event;
-      const followUpQuestions: string[] = parsedResponse.follow_up_questions || [];
-
-      // Check for critical missing data for event creation
-      const missingCriticalData: string[] = [];
-      if (!eventData.title || eventData.title === 'MISSING') missingCriticalData.push('title');
-      if (!eventData.occurrences || eventData.occurrences[0]?.start_ts === 'MISSING') missingCriticalData.push('start time');
-      if (!eventData.location || eventData.location.name === 'MISSING') missingCriticalData.push('location name');
-
-      if (missingCriticalData.length > 0) {
-        // Ask for more information if critical data is missing
-        const questions = missingCriticalData.map(item => `What is the ${item} for the event?`);
-        return res.status(200).json({
-          type: 'follow_up',
-          event: eventData, // Send back what we have so far
-          questions: questions.concat(followUpQuestions),
-        });
-      } else {
-        // All critical data is available, send to /api/publish
-        return res.status(200).json({ type: 'event_ready', event: eventData });
-      }
-    }
-
-    // Default case if AI doesn't categorize correctly
-    return res.status(200).json({ message: 'I could not understand your request. Please try again.' });
-
-  } catch (error: any) {
-    console.error('OpenAI API error:', error);
-    res.status(500).json({ message: 'Error processing your request with AI.', error: error.message });
-}
-`;
+  } catch (error) {
+    console.error('Error in chat API:', error);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
 }
