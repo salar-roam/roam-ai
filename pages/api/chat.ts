@@ -35,7 +35,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const ASSISTANT_ID = process.env.OPENAI_ASSISTANT_ID || 'asst_abc123'; // Replace with your assistant ID
+const ASSISTANT_ID = process.env.OPENAI_ASSISTANT_ID || 'asst_xiJWFReVZ160EzJ9RUyVCRVh'; // Replace with your assistant ID
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
