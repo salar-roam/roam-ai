@@ -104,6 +104,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messages: [
         {
           role: 'system',
+          content: 'You are a helpful assistant that provides responses in JSON format.',
+        },
+        {
+          role: 'system',
           content: fullPrompt,
         },
         {
