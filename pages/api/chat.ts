@@ -152,11 +152,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fullPrompt = getEventExtractionPrompt(userInput, currentEventDraft, conversationHistory || []);
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-0125', // Consider 'gpt-4o' for better adherence to complex prompts
+      model: 'gpt-3.5-turbo-0125',
       messages: [
         {
           role: 'system',
-          content: 'You are a helpful assistant that provides responses in JSON format.',
+          content: 'You are a helpful assistant that MUST respond in JSON format with a "type" field that is either "event_creation", "search", or "message". For example: {"type": "message", "message": "Your response here"}',
         },
         {
           role: 'system',
@@ -168,7 +168,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.1, // Lower temperature for more consistent JSON output
+      temperature: 0.1,
     });
 
     const rawResponse = completion.choices[0].message.content;
