@@ -72,7 +72,57 @@ const getEventExtractionPrompt = (
   const formattedHistory = JSON.stringify(conversationHistory, null, 2);
   const formattedDraft = JSON.stringify(currentEventDraft, null, 2);
 
-  return `You are an AI assistant helping users create and search for events. Please process the following user input and respond according to the specified format.
+  return `You are an AI assistant helping users create and search for events. You must respond in JSON format with one of these types:
+
+1. For event creation:
+{
+  "type": "event_creation",
+  "status": "incomplete" | "confirmation_pending" | "complete",
+  "event": {
+    "title": string,
+    "description": string,
+    "price_value": number,
+    "price_text": string,
+    "currency": string,
+    "town": string,
+    "host": {
+      "name": string,
+      "phone_whatsapp": string,
+      "instagram": string
+    },
+    "location": {
+      "name": string,
+      "address": string,
+      "lat": number,
+      "lng": number
+    },
+    "tags": string[],
+    "image_url": string,
+    "links": { "url": string, "text": string }[],
+    "recurrence_rule": "one-time" | "weekly" | "monthly" | "daily",
+    "is_on_demand": boolean,
+    "occurrences": {
+      "start_ts": string,
+      "end_ts": string | null
+    }[]
+  },
+  "follow_up_questions": string[],
+  "confirmation_message": string,
+  "user_facing_message": string
+}
+
+2. For search:
+{
+  "type": "search",
+  "query": string,
+  "user_facing_message": string
+}
+
+3. For general messages:
+{
+  "type": "message",
+  "message": string
+}
 
 Current Conversation History (for context, most recent last):
 ${formattedHistory}
@@ -80,7 +130,9 @@ ${formattedHistory}
 Current Event Draft (important for merging new details):
 ${formattedDraft}
 
-Now, based on the above conversation and draft, respond to the current user input: "${userInput}"`;
+Now, based on the above conversation and draft, respond to the current user input: "${userInput}"
+
+Remember to always respond with a valid JSON object matching one of the above formats.`;
 };
 
 // --- Main API Handler Function (Updated to use new AI Response structure) ---
@@ -129,18 +181,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let parsedResponse: AIResponse;
     try {
       parsedResponse = JSON.parse(rawResponse);
+      console.log('Parsed Response:', parsedResponse); // Add this line for debugging
     } catch (jsonError) {
       console.error('Failed to parse OpenAI JSON response:', jsonError);
       return res.status(500).json({ message: 'Failed to parse AI response.', error: jsonError });
     }
 
-    // Check if the response is a general message
+    // Handle different response types
+    if (parsedResponse.type === 'event_creation') {
+      const eventData: ExtractedEventData = parsedResponse.event;
+      const status = parsedResponse.status;
+      const followUpQuestions: string[] = parsedResponse.follow_up_questions || [];
+      const confirmationMessage: string | undefined = parsedResponse.confirmation_message;
+      const userFacingMessage: string | undefined = parsedResponse.user_facing_message;
+
+      if (status === 'incomplete' && followUpQuestions.length > 0) {
+        return res.status(200).json({ type: 'follow_up', event: eventData, questions: followUpQuestions });
+      }
+
+      if (status === 'confirmation_pending' && confirmationMessage) {
+        return res.status(200).json({ type: 'follow_up', event: eventData, questions: [confirmationMessage] });
+      }
+
+      if (status === 'complete' && eventData) {
+        return res.status(200).json({ type: 'event_ready', event: eventData, message: userFacingMessage || 'Event is ready for publishing!' });
+      }
+    }
+
+    if (parsedResponse.type === 'search') {
+      const searchQuery = parsedResponse.query;
+      if (!searchQuery) {
+        return res.status(400).json({ message: 'Search query not provided by AI.' });
+      }
+
+      // ... rest of search handling code ...
+    }
+
     if (parsedResponse.type === 'message') {
       return res.status(200).json({ type: 'message', message: parsedResponse.message });
     }
 
-    // If the response is not recognized, provide a more informative message
-    return res.status(200).json({ type: 'message', message: 'I could not understand your request. Please try again.' });
+    // If we get here, the response type wasn't recognized
+    console.error('Unrecognized response type:', parsedResponse);
+    return res.status(200).json({ 
+      type: 'message', 
+      message: parsedResponse.user_facing_message || 'I could not understand your request. Please try again.' 
+    });
 
   } catch (error: any) {
     console.error('OpenAI API error:', error);
