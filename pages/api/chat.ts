@@ -5,7 +5,6 @@ import { supabase } from '../../lib/supabase';
 import { getTownTimezone } from '../../lib/timezone-helpers';
 
 // --- Interfaces (Updated) ---
-// Matches the structure the AI should extract and what the backend will process
 interface ExtractedEventData {
   title: string;
   description?: string;
@@ -71,6 +70,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const tz = currentEventDraft?.town ? getTownTimezone(currentEventDraft.town) : 'America/Santo_Domingo';
+    const now = new Date();
+    const tomorrow = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowISO = tomorrow.toISOString().split('T')[0];
+
+    const formattedHistory = JSON.stringify(conversationHistory || [], null, 2);
+    const formattedDraft = JSON.stringify(currentEventDraft || {}, null, 2);
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo-0125',
       messages: [
