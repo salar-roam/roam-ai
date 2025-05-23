@@ -134,87 +134,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ message: 'Failed to parse AI response.', error: jsonError });
     }
 
-    // --- Handle AI Response based on its Type and Status ---
-    if (parsedResponse.type === 'search') {
-      const searchQuery = parsedResponse.query;
-      if (!searchQuery) {
-        return res.status(400).json({ message: 'Search query not provided by AI.' });
-      }
-
-      // --- PgVector Search Placeholder (More complex logic will go here) ---
-      // For now, retaining basic keyword search.
-      // This will be updated with actual embedding generation and vector search in a later step.
-      const { data: events, error } = await supabase
-        .from('events')
-        .select(`
-          id, title, description, price_value, price_text, currency, tags, image_url, links, recurrence_rule, is_on_demand,
-          towns(name, tz),
-          hosts(id, name, phone_whatsapp, instagram),
-          locations(id, name, address, lat, lng),
-          event_occurrences(start_ts, end_ts)
-        `)
-        .or(`title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,tags.cs.{"${searchQuery}"},hosts.name.ilike.%${searchQuery}%,locations.name.ilike.%${searchQuery}%`)
-        .limit(10);
-
-      if (error) {
-        console.error('Supabase search error:', error);
-        return res.status(500).json({ message: 'Error searching events.', error: error.message });
-      }
-
-      // Flatten nested data for frontend display
-      const formattedResults = events.map((event: any) => {
-        // No mapsLink generation here as it's removed
-        return {
-          id: event.id,
-          title: event.title,
-          description: event.description || 'N/A',
-          price_text: event.price_text || 'Free',
-          host: event.hosts?.name || 'N/A',
-          location: `${event.locations?.name || 'N/A'}, ${event.locations?.address || 'N/A'}`,
-          occurrences: event.event_occurrences // Keep occurrences as array
-        };
-      });
-
-      if (formattedResults && formattedResults.length > 0) {
-        return res.status(200).json({ type: 'search_results', results: formattedResults });
-      } else {
-        return res.status(200).json({ type: 'search_results', message: parsedResponse.user_facing_message || 'No events found matching your search.' });
-      }
-    }
-
-    if (parsedResponse.type === 'event_creation') {
-      const eventData: ExtractedEventData = parsedResponse.event;
-      const status = parsedResponse.status;
-      const followUpQuestions: string[] = parsedResponse.follow_up_questions || [];
-      const confirmationMessage: string | undefined = parsedResponse.confirmation_message;
-      const userFacingMessage: string | undefined = parsedResponse.user_facing_message;
-
-      if (status === 'incomplete' && followUpQuestions.length > 0) {
-        return res.status(200).json({ type: 'follow_up', event: eventData, questions: followUpQuestions });
-      }
-
-      if (status === 'confirmation_pending' && confirmationMessage) {
-        // Since mapsLink is removed, no placeholder replacement needed
-        return res.status(200).json({ type: 'follow_up', event: eventData, questions: [confirmationMessage] });
-      }
-
-      if (status === 'complete' && eventData) {
-        // This means the user has confirmed the event. Now, process and publish.
-        // The actual `publish` API call needs to handle resolving IDs and inserting.
-        return res.status(200).json({ type: 'event_ready', event: eventData, message: userFacingMessage || 'Event is ready for publishing!' });
-      }
-
-      // Fallback for unexpected AI response in event creation mode
-      return res.status(200).json({ type: 'message', message: userFacingMessage || 'I\'m still processing your event details. Could you clarify?' });
-
-    }
-
-    // Default case if AI doesn't categorize correctly (type is 'message')
-    if (parsedResponse.type === 'message' && parsedResponse.message) {
+    // Check if the response is a general message
+    if (parsedResponse.type === 'message') {
       return res.status(200).json({ type: 'message', message: parsedResponse.message });
     }
 
-    // Generic fallback if all else fails
+    // If the response is not recognized, provide a more informative message
     return res.status(200).json({ type: 'message', message: 'I could not understand your request. Please try again.' });
 
   } catch (error: any) {
