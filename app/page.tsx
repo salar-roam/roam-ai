@@ -1,48 +1,108 @@
 // app/page.tsx
 'use client'; // This directive makes this component a Client Component
 
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect, useRef } from 'react'; // Added useEffect and useRef
 import { CgSpinner } from 'react-icons/cg'; // For loading spinner
 
-// Define interfaces for API responses
-interface ChatResponse {
-  type: 'event_ready' | 'follow_up' | 'search_results' | 'message';
-  event?: any; // Structured event data
-  questions?: string[]; // Follow-up questions
-  results?: any[]; // Search results
-  message?: string; // General message
-  error?: string;
+// --- Define interfaces for API responses (Updated - mapsLink removed from ExtractedEventData) ---
+interface ExtractedEventData {
+  title?: string;
+  description?: string;
+  price_value?: number;
+  price_text?: string;
+  currency?: string;
+  town?: string;
+  host?: {
+    name?: string;
+    phone_whatsapp?: string;
+    instagram?: string;
+  };
+  location?: {
+    name?: string;
+    address?: string;
+    lat?: number;
+    lng?: number;
+    // mapsLink?: string; // REMOVED from frontend interface
+  };
+  tags?: string[];
+  image_url?: string;
+  links?: { url: string; text: string }[];
+  recurrence_rule?: string;
+  is_on_demand?: boolean;
+  occurrences?: {
+    start_ts: string; // ISO 8601
+    end_ts: string | null;
+  }[];
+}
+
+interface EventCreationAIResponse {
+  type: 'event_creation';
+  status: 'incomplete' | 'confirmation_pending' | 'complete';
+  event: ExtractedEventData;
+  follow_up_questions?: string[];
+  confirmation_message?: string;
+  user_facing_message?: string;
+}
+
+interface SearchAIResponse {
+  type: 'search';
+  query: string;
+}
+
+interface GeneralMessageAIResponse {
+  type: 'message';
+  message: string;
+}
+
+interface SearchResultsAIResponse {
+  type: 'search_results';
+  results?: any[];
+  message?: string;
+}
+
+// Combined AI response type
+type AIResponse = EventCreationAIResponse | SearchAIResponse | GeneralMessageAIResponse | SearchResultsAIResponse;
+
+// Message interface for chat history
+interface Message {
+  text: string;
+  sender: 'user' | 'ai';
 }
 
 export default function Home() {
   const [input, setInput] = useState<string>('');
-  const [messages, setMessages] = useState<{ text: string; sender: 'user' | 'ai' }[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [currentEventDraft, setCurrentEventDraft] = useState<any>(null); // To hold incomplete event data
+  const [currentEventDraft, setCurrentEventDraft] = useState<ExtractedEventData | null>(null); // To hold incomplete event data
+
+  const messagesEndRef = useRef<HTMLDivElement>(null); // Ref for auto-scrolling
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const userMessage = { text: input, sender: 'user' as const };
+    const userMessage: Message = { text: input, sender: 'user' };
     setMessages((prev) => [...prev, userMessage]);
     setLoading(true);
     setInput(''); // Clear input immediately
 
     try {
-      // Determine the API endpoint to call
-      let apiEndpoint = '/api/chat';
-      let body = { text: input };
+      const apiEndpoint = '/api/chat';
 
-      // If we have an event draft and the user is answering follow-up questions
-      if (currentEventDraft && currentEventDraft.questions?.length > 0) {
-        // We'll send the new input along with the existing draft to /api/chat
-        // The AI needs to intelligently merge this. This is a simplification.
-        // A more robust solution might involve sending the full conversation history.
-        body = {
-          text: `Here's more info: ${input}. Current event draft: ${JSON.stringify(currentEventDraft.event)}`,
-        };
-      }
+      // Prepare conversation history for the AI
+      // Send entire history for now, could optimize to last N messages later
+      const conversationHistory = messages; 
+      
+      const body = {
+        text: userMessage.text, // Send the current user input
+        currentEventDraft: currentEventDraft, // Send the current draft to the AI
+        conversationHistory: conversationHistory // Send relevant history
+      };
 
       const res = await fetch(apiEndpoint, {
         method: 'POST',
@@ -50,45 +110,62 @@ export default function Home() {
         body: JSON.stringify(body),
       });
 
-      const data: ChatResponse = await res.json();
+      const data: AIResponse = await res.json();
       console.log('API Response:', data);
 
       if (res.ok) {
-        if (data.type === 'event_ready' && data.event) {
-          // Event is ready, call /api/publish
-          setMessages((prev) => [...prev, { text: 'Great! I have all the details. Publishing your event...', sender: 'ai' }]);
-          const publishRes = await fetch('/api/publish', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ event: data.event }),
-          });
-          const publishData = await publishRes.json();
-          if (publishRes.ok) {
-            setMessages((prev) => [...prev, { text: 'Event published successfully!', sender: 'ai' }]);
-            setCurrentEventDraft(null); // Clear draft after successful publish
+        if (data.type === 'event_creation') {
+          setCurrentEventDraft(data.event); // Always update draft with AI's latest understanding
+
+          if (data.status === 'incomplete' && data.follow_up_questions && data.follow_up_questions.length > 0) {
+            const followUpText = Array.isArray(data.follow_up_questions) && data.follow_up_questions.length > 0
+              ? data.follow_up_questions.join(' ')
+              : 'Can you provide more details?';
+            setMessages((prev) => [...prev, { text: `I need a bit more information: ${followUpText}`, sender: 'ai' }]);
+          } else if (data.status === 'confirmation_pending' && data.confirmation_message) {
+            setMessages((prev) => [...prev, { text: data.confirmation_message ?? '', sender: 'ai' }]);
+          } else if (data.status === 'complete' && data.event) {
+            // Event is ready, call /api/publish
+            setMessages((prev) => [...prev, { text: 'Great! I have all the details. Publishing your event...', sender: 'ai' }]);
+            const publishRes = await fetch('/api/publish', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ event: data.event }), // Send the AI's extracted event data
+            });
+            const publishData = await publishRes.json();
+            if (publishRes.ok) {
+              setMessages((prev) => [...prev, { text: data.user_facing_message ?? 'Event published successfully! 🎉', sender: 'ai' }]);
+              setCurrentEventDraft(null); // Clear draft after successful publish
+            } else {
+              setMessages((prev) => [...prev, { text: `Error publishing event: ${publishData.message ?? 'Unknown error'}`, sender: 'ai' }]);
+            }
           } else {
-            setMessages((prev) => [...prev, { text: `Error publishing event: ${publishData.message || 'Unknown error'}`, sender: 'ai' }]);
+            // Fallback for unexpected AI response in event creation mode
+            setMessages((prev) => [...prev, { text: data.user_facing_message ?? 'I\'m still processing your event details. Could you clarify?', sender: 'ai' }]);
           }
-        } else if (data.type === 'follow_up' && data.questions) {
-          setMessages((prev) => [...prev, { text: `I need a bit more information: ${data.questions!.join(' ')}`, sender: 'ai' }]);          setCurrentEventDraft({ event: data.event, questions: data.questions }); // Store draft
-        } else if (data.type === 'search_results' && data.results) {
-          if (data.results.length > 0) {
-            const formattedResults = data.results.map((event: any) =>
-              `**${event.title}**\nDescription: ${event.description || 'N/A'}\nLocation: ${event.location?.name || 'N/A'}, ${event.location?.address || 'N/A'}\nPrice: ${event.price_text || 'Free'}\nHost: ${event.host?.name || 'N/A'}\nWhen: ${event.occurrences && event.occurrences[0]?.start_ts ? new Date(event.occurrences[0].start_ts).toLocaleString() : 'N/A'}`
-            ).join('\n\n');
+        } else if (data.type === 'search_results') {
+          if (Array.isArray(data.results) && data.results.length > 0) {
+            const formattedResults = data.results.map((event: any) => {
+              return `**${event.title}**\nDescription: ${event.description || 'N/A'}\nLocation: ${event.location || 'N/A'}\nPrice: ${event.price_text || 'Free'}\nHost: ${event.host || 'N/A'}\nWhen: ${event.occurrences && event.occurrences[0]?.start_ts ? new Date(event.occurrences[0].start_ts).toLocaleString() : 'N/A'}`;
+            }).join('\n\n');
             setMessages((prev) => [...prev, { text: `Here are the events I found:\n\n${formattedResults}`, sender: 'ai' }]);
           } else {
-            setMessages((prev) => [...prev, { text: data.message || 'No events found matching your search.', sender: 'ai' }]);
+            const msg = typeof data.message === 'string' ? data.message : 'No events found matching your search.';
+            setMessages((prev) => [...prev, { text: msg, sender: 'ai' }]);
           }
-          setCurrentEventDraft(null); // Clear draft after search
-        } else if (data.message) {
-          setMessages((prev) => [...prev, { text: data.message || 'An unknown message was received.', sender: 'ai' }]);          setCurrentEventDraft(null); // Clear draft if general message
+          setCurrentEventDraft(null);
+        } else if (data.type === 'message') {
+          setMessages((prev) => [...prev, { text: (data as GeneralMessageAIResponse).message ?? 'An unknown message was received.', sender: 'ai' }]);
+          setCurrentEventDraft(null);
         } else {
           setMessages((prev) => [...prev, { text: 'An unexpected response was received from the AI.', sender: 'ai' }]);
           setCurrentEventDraft(null);
         }
       } else {
-        setMessages((prev) => [...prev, { text: `Error: ${data.message || 'Something went wrong.'}`, sender: 'ai' }]);
+        const errorMsg = 'message' in data && typeof data.message === 'string'
+          ? data.message
+          : 'Something went wrong.';
+        setMessages((prev) => [...prev, { text: `Error: ${errorMsg}`, sender: 'ai' }]);
         setCurrentEventDraft(null);
       }
     } catch (error: any) {
@@ -125,6 +202,7 @@ export default function Home() {
               <CgSpinner className="animate-spin inline-block text-white text-3xl" />
             </div>
           )}
+          <div ref={messagesEndRef} /> {/* For auto-scrolling */}
         </div>
 
         <form onSubmit={handleSubmit} className="w-full flex">
