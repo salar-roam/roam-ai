@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import OpenAI from 'openai';
 import { supabase } from '../../lib/supabase';
 
+// Define the structure for an event
 interface EventData {
   title?: string;
   description?: string;
@@ -26,16 +27,40 @@ interface EventData {
   recurrence_rule?: string;
   is_on_demand?: boolean;
   occurrences?: {
-    start_ts: string;
+    start_ts: string; // ISO 8601
     end_ts: string | null;
   }[];
 }
 
+// Define response types
+interface BaseResponse {
+  type: 'event_creation' | 'search' | 'message';
+}
+
+interface EventCreationResponse extends BaseResponse {
+  type: 'event_creation';
+  event: EventData;
+  follow_up_questions?: string[];
+}
+
+interface SearchResponse extends BaseResponse {
+  type: 'search';
+  query: string;
+}
+
+interface MessageResponse extends BaseResponse {
+  type: 'message';
+  message: string;
+}
+
+type AIResponse = EventCreationResponse | SearchResponse | MessageResponse;
+
+// Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const ASSISTANT_ID = process.env.OPENAI_ASSISTANT_ID || 'asst_xiJWFReVZ160EzJ9RUyVCRVh'; // Replace with your assistant ID
+const ASSISTANT_ID = process.env.OPENAI_ASSISTANT_ID || 'asst_xiJWFReVZ160EzJ9RUyVCRVh';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -90,9 +115,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ message: 'No assistant reply found or invalid content type.' });
     }
 
-    let parsedResponse: any;
+    let parsedResponse: AIResponse;
     try {
-      parsedResponse = JSON.parse(rawResponse);
+      const parsed = JSON.parse(rawResponse);
+      if (!isAIResponse(parsed)) {
+        throw new Error('Invalid response format');
+      }
+      parsedResponse = parsed;
       console.log('Parsed Response:', parsedResponse);
     } catch (error) {
       console.error('Error parsing Assistant response:', error);
@@ -100,32 +129,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Step 6: Handle response types
-    switch (parsedResponse.type) {
+    const response = parsedResponse as AIResponse;
+    switch (response.type) {
       case 'event_creation':
-        if (!parsedResponse.event) {
+        if (!response.event) {
           return res.status(400).json({ message: 'Invalid event data in response.' });
         }
-        return res.status(200).json(parsedResponse);
+        return res.status(200).json(response);
 
       case 'search':
-        if (!parsedResponse.query) {
+        if (!response.query) {
           return res.status(400).json({ message: 'Missing search query in response.' });
         }
-        return res.status(200).json(parsedResponse);
+        return res.status(200).json(response);
 
       case 'message':
-        if (!parsedResponse.message) {
+        if (!response.message) {
           return res.status(400).json({ message: 'Missing message in response.' });
         }
-        return res.status(200).json(parsedResponse);
+        return res.status(200).json(response);
 
       default:
-        console.error('Unrecognized response type:', parsedResponse.type);
+        console.error('Unrecognized response type:', response.type);
         return res.status(400).json({ message: 'Unrecognized response type from Assistant.' });
     }
 
   } catch (error) {
     console.error('Error in chat API:', error);
     return res.status(500).json({ message: 'Internal server error.' });
+  }
+}
+
+// Type guard to check if the response is a valid AIResponse
+function isAIResponse(response: any): response is AIResponse {
+  if (!response || typeof response !== 'object') return false;
+  if (!response.type || !['event_creation', 'search', 'message'].includes(response.type)) return false;
+
+  switch (response.type) {
+    case 'event_creation':
+      return !!response.event;
+    case 'search':
+      return typeof response.query === 'string';
+    case 'message':
+      return typeof response.message === 'string';
+    default:
+      return false;
   }
 }
