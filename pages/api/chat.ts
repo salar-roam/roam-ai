@@ -129,30 +129,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Step 6: Handle response types
-    const response = parsedResponse as AIResponse;
-    switch (response.type) {
+    switch (parsedResponse.type) {
       case 'event_creation':
-        if (!response.event) {
+        if (!parsedResponse.event) {
           return res.status(400).json({ message: 'Invalid event data in response.' });
         }
-        return res.status(200).json(response);
+        return res.status(200).json(parsedResponse);
 
       case 'search':
-        if (!response.query) {
+        if (!parsedResponse.query) {
           return res.status(400).json({ message: 'Missing search query in response.' });
         }
-        return res.status(200).json(response);
+        return res.status(200).json(parsedResponse);
 
       case 'message':
-        if (!response.message) {
+        if (!parsedResponse.message) {
           return res.status(400).json({ message: 'Missing message in response.' });
         }
-        return res.status(200).json(response);
-
-      default:
-        console.error('Unrecognized response type:', response.type);
-        return res.status(400).json({ message: 'Unrecognized response type from Assistant.' });
+        return res.status(200).json(parsedResponse);
     }
+
+    // This should never be reached due to the type guard
+    return res.status(400).json({ message: 'Unrecognized response type from Assistant.' });
 
   } catch (error) {
     console.error('Error in chat API:', error);
