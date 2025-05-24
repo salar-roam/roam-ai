@@ -46,43 +46,44 @@ const getEventExtractionPrompt = (userInput: string): string => {
   const tomorrowISO = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
 
   return `You are an AI assistant for Roam AI, an event management platform. Your task is to extract structured event information from user descriptions.
-If a piece of information is not explicitly provided, indicate it as 'MISSING'.
+If a piece of information is not explicitly provided, DO NOT set it as 'MISSING'. Instead, ask the user for that information.
 Do not make up information. Ask follow-up questions if critical information like title, a start time, or location is missing.
 
 User input: "${userInput}"
 
-Extract the following JSON structure. If the user input is a search query, set 'type' to 'search' and 'query' to the search terms. If it's an event creation request, set 'type' to 'event_creation' and fill out the 'event' object.
+If the user wants to create an event but hasn't provided enough information, respond with type: "follow_up" and ask for the missing information.
+If the user is searching for events, respond with type: "search" and include their search query.
 
 Expected JSON format:
 {
-  "type": "event_creation" | "search",
+  "type": "event_creation" | "search" | "follow_up",
   "query"?: string,
   "event"?: {
-    "title": string | "MISSING",
-    "description": string | "MISSING",
-    "price_value": number | "MISSING",
-    "price_text": string | "MISSING",
-    "currency": string | "MISSING",
-    "town": string | "MISSING",
+    "title": string,
+    "description": string,
+    "price_value": number,
+    "price_text": string,
+    "currency": string,
+    "town": string,
     "host": {
-      "name": string | "MISSING",
-      "phone_whatsapp": string | "MISSING"
+      "name": string,
+      "phone_whatsapp": string
     },
     "location": {
-      "name": string | "MISSING",
-      "address": string | "MISSING",
-      "lat": number | "MISSING",
-      "lng": number | "MISSING"
+      "name": string,
+      "address": string,
+      "lat": number,
+      "lng": number
     },
-    "tags": string[] | "MISSING",
-    "image_url": string | "MISSING",
-    "links": { "url": string, "text": string }[] | "MISSING",
-    "recurrence_rule": string | "MISSING",
-    "is_on_demand": boolean | "MISSING",
+    "tags": string[],
+    "image_url": string,
+    "links": { "url": string, "text": string }[],
+    "recurrence_rule": string,
+    "is_on_demand": boolean,
     "occurrences": [
       {
-        "start_ts": string | "MISSING",
-        "end_ts": string | null | "MISSING"
+        "start_ts": string,
+        "end_ts": string | null
       }
     ]
   },
@@ -90,6 +91,16 @@ Expected JSON format:
 }
 
 Examples:
+User: "I want to create an event"
+AI: {
+  "type": "follow_up",
+  "follow_up_questions": [
+    "What is the title of your event?",
+    "When would you like to hold the event?",
+    "Where will the event take place?"
+  ]
+}
+
 User: "Yoga at the beach tomorrow at 8am hosted by Mia for 500 pesos"
 AI: {
   "type": "event_creation",
@@ -135,16 +146,10 @@ AI: {
   "query": "Free dance events this weekend in Cabarete"
 }
 
-User: "Tell me more about the yoga event"
-AI: {
-  "type": "search",
-  "query": "yoga event"
-}
-
 Now, extract from: "${userInput}"`;
 };
 
-// Define response types
+// Update the response types
 interface SearchResponse {
   type: 'search';
   query: string;
@@ -156,14 +161,19 @@ interface EventCreationResponse {
   follow_up_questions?: string[];
 }
 
-type AIResponse = SearchResponse | EventCreationResponse;
+interface FollowUpResponse {
+  type: 'follow_up';
+  follow_up_questions: string[];
+}
+
+type AIResponse = SearchResponse | EventCreationResponse | FollowUpResponse;
 
 // Type guard for AI response
 function isAIResponse(response: any): response is AIResponse {
   return (
     response &&
     typeof response === 'object' &&
-    (response.type === 'search' || response.type === 'event_creation')
+    (response.type === 'search' || response.type === 'event_creation' || response.type === 'follow_up')
   );
 }
 
@@ -212,6 +222,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!isAIResponse(parsedResponse)) {
       return res.status(400).json({ message: 'Invalid response format from AI.' });
+    }
+
+    // Handle follow-up questions
+    if (parsedResponse.type === 'follow_up') {
+      return res.status(200).json({
+        type: 'follow_up',
+        questions: parsedResponse.follow_up_questions,
+      });
     }
 
     // Handle search queries
