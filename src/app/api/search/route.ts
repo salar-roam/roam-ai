@@ -1,28 +1,42 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from '@/lib/supabase'
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const query = searchParams.get('q')
+  try {
+    const { searchParams } = new URL(request.url)
+    const query = searchParams.get('q')
+    const town = searchParams.get('town')
 
-  if (!query) {
-    return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 })
+    if (!query) {
+      return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 })
+    }
+
+    let searchQuery = supabase
+      .from('events')
+      .select('*')
+      .textSearch('title', query)
+
+    if (town) {
+      searchQuery = searchQuery.eq('town', town)
+    }
+
+    const { data, error } = await searchQuery.limit(10)
+
+    if (error) {
+      console.error('[Search API Error]', error)
+      return NextResponse.json(
+        { error: 'Failed to search events' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ results: data })
+  } catch (error) {
+    console.error('[Search API Error]', error)
+    const errorMessage = error instanceof Error ? error.message : 'An internal error occurred.'
+    return NextResponse.json(
+      { error: 'Failed to process search request', details: errorMessage },
+      { status: 500 }
+    )
   }
-
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .textSearch('title', query)
-    .limit(10)
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ results: data })
 } 
