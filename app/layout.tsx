@@ -1,27 +1,24 @@
 // app/layout.tsx
-import '../styles/globals.css'; // <-- CORRECTED PATH
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css"; // Imports global styles (including Tailwind)
 
-// ... rest of the file
-
-// ... rest of your layout.tsx code
-
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Roam AI',
-  description: 'Your intelligent event assistant',
+  title: "Event Finder AI",
+  description: "Create and Search events with an AI Chatbot in RD and beyond!",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-black text-white`}>
+    <html lang="en" className="h-full"> {/* Ensures full height */}
+      <body className={`${inter.className} h-full bg-white text-black`}> {/* Ensures full height */}
+        {/* 'main' is now implicit in page.tsx, but ensure children fill the height */}
         {children}
       </body>
     </html>
